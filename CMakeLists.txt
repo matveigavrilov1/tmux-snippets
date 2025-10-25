@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.10.0)
+project(tmux-snippets VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_executable(tmux-snippets-ui main.cpp)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include(git)
+get_git_commit_hash(GIT_COMMIT_HASH)
+message(STATUS "Git commit hash: ${GIT_COMMIT_HASH}")
+add_definitions(-DGIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+
+set(CMAKE_INSTALL_DIR "${CMAKE_SOURCE_DIR}/${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_BUILD_TYPE}-${GIT_COMMIT_HASH}")
+
+set(PLUGIN_FILES
+    "${CMAKE_SOURCE_DIR}/snippets.tmux"
+)
+
+install(TARGETS tmux-snippets-ui
+    RUNTIME DESTINATION "${CMAKE_INSTALL_DIR}"
+    CONFIGURATIONS Release Debug
+)
+
+install(FILES ${PLUGIN_FILES}
+    DESTINATION "${CMAKE_INSTALL_DIR}"
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+    CONFIGURATIONS Release Debug
+)
+
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/scripts/"
+    DESTINATION "${CMAKE_INSTALL_DIR}/scripts"
+    USE_SOURCE_PERMISSIONS
+    CONFIGURATIONS Release Debug
+    FILES_MATCHING PATTERN "*.sh"
+)
