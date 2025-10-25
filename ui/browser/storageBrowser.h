@@ -108,7 +108,7 @@ private:
 class storageBrowser
 {
 public:
-	storageBrowser(data::storage::shared_ptr_t storage);
+	storageBrowser(data::storage::shared_ptr_t storage, std::function<void()> on_quit);
 	ftxui::Component createComponent();
 
 private:
@@ -130,6 +130,6 @@ private:
 	SnippetContentView snippet_view_;
 };
 
-void runStorageBrowser(data::storage::shared_ptr_t storage);
+void runStorageBrowser(data::storage::shared_ptr_t storage, const std::string& pane);
 
 } // namespace ui

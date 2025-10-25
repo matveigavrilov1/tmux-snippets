@@ -4,6 +4,7 @@ set(UI_TARGET_SOURCES main.cpp
 	browser/storageBrowser.cpp
 	data/storage.cpp
 	utils/generate_uuid.cpp
+	utils/send_to_tmux.cpp
 )
 
 add_executable(${UI_EXECUTABLE} ${UI_TARGET_SOURCES})

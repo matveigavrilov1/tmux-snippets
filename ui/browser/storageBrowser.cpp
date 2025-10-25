@@ -1,11 +1,16 @@
 #include "browser/storageBrowser.h"
+
 #include <ftxui/component/screen_interactive.hpp>
+
+#include "utils/send_to_tmux.h"
+
+#include <optional>
 
 using namespace ftxui;
 
 namespace ui
 {
-
+static std::string paneToSendCommand;
 // InputDialog implementation
 InputDialog::InputDialog()
 {
@@ -17,8 +22,8 @@ InputDialog::InputDialog()
 			if (!visible_)
 				return text("");
 
-			return vbox(
-							 { text(title_) | bold | center, separator(), input_->Render() | border, separator(), text("Press Enter to confirm, Escape to cancel") | center })
+			return vbox({ text(title_) | bold | center, separator(), hbox({ text("> "), input_->Render() }) | border, separator(),
+							 hbox({ text("[Enter]") | bold, text(" Confirm  "), text("[Esc]") | bold, text(" Cancel") }) | center })
 				| border | center;
 		});
 
@@ -91,7 +96,8 @@ MultiLineInputDialog::MultiLineInputDialog()
 			content_elements.push_back(checkbox_->Render());
 			content_elements.push_back(separator());
 
-			content_elements.push_back(text("Tab: Switch field, Enter: Confirm, Escape: Cancel") | center);
+			content_elements.push_back(
+				hbox({ text("[Enter]") | bold, text(" Confirm  "), text("[Esc]") | bold, text(" Cancel  "), text("[Tab]") | bold, text(" Switch field") }) | center);
 
 			return window(text("Input Dialog"), vbox(content_elements)) | size(WIDTH, EQUAL, 100) | center;
 		});
@@ -236,12 +242,9 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 				folder_index++;
 			}
 
-			auto list = vbox(elements);
+			auto list = vbox(std::move(elements));
 
-			std::vector<Element> instructions = { text("Navigation: ↑↓ Move, Enter Open, Backspace Back"),
-				text("Actions: 'a' Add snippet, 'd' Delete, 'e' Edit, 'n' New folder"), text("'s' Show snippet content, 'q' Quit") };
-
-			return window(text("Storage Browser"), vbox({ hbox(instructions) | flex, separator(), list | flex }) | flex);
+			return window(text("Storage Browser"), vbox({ createKeyHelp(), separator(), list | flex }) | flex);
 		});
 
 	component_ |= CatchEvent(
@@ -274,37 +277,43 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 				}
 				return true;
 			}
-			else if (event == Event::Character('d') || event == Event::Delete)
+			else if (event == Event::Delete)
 			{
 				if (on_delete)
 					on_delete();
 				return true;
 			}
-			else if (event == Event::Character('a'))
+			else if (event == Event::F1)
 			{
 				if (on_add_snippet)
 					on_add_snippet();
 				return true;
 			}
-			else if (event == Event::Character('e'))
+			else if (event == Event::F2)
 			{
 				if (on_edit_snippet)
 					on_edit_snippet();
 				return true;
 			}
-			else if (event == Event::Character('n'))
+			else if (event == Event::F3)
 			{
 				if (on_add_folder)
 					on_add_folder();
 				return true;
 			}
-			else if (event == Event::Character('s'))
+			else if (event == Event::F4)
 			{
 				if (on_show_snippet)
 					on_show_snippet();
 				return true;
 			}
-			else if (event == Event::Character('q'))
+			else if (event == Event::F5)
+			{
+				if (on_rename)
+					on_rename();
+				return true;
+			}
+			else if (event == Event::Escape)
 			{
 				if (on_quit)
 					on_quit();
@@ -313,6 +322,13 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 
 			return false;
 		});
+}
+
+Element StorageTreeView::createKeyHelp()
+{
+	return hbox(
+					 { text("[F1] Add "), text("[F2] Edit "), text("[F3] Folder "), text("[F4] View "), text("[F5] Rename "), text("[Del] Delete "), text("[Esc] Quit") })
+		| bold;
 }
 
 std::string StorageTreeView::getCurrentPath()
@@ -379,16 +395,32 @@ void StorageTreeView::handleEnter(const data::storage::folder_shared_ptr_t& curr
 		std::advance(it, adjusted_index);
 		storage_->folderDown(it->first);
 		selected_index_ = 0;
+		return;
 	}
+
+	if (adjusted_index >= current_folder->subFolders_.size())
+	{
+		int snippet_index = adjusted_index - current_folder->subFolders_.size();
+		if (snippet_index < current_folder->snippets_.size())
+		{
+			auto snippet = current_folder->snippets_[snippet_index];
+			utils::sendCommandToTmux(snippet->content, paneToSendCommand);
+
+			if (on_quit)
+				on_quit();
+			return;
+		}
+	}
+
+	return;
 }
 
 // storageBrowser implementation
-storageBrowser::storageBrowser(data::storage::shared_ptr_t storage)
+storageBrowser::storageBrowser(data::storage::shared_ptr_t storage, std::function<void()> on_quit)
 : storage_(storage)
 , tree_view_(storage)
 {
 	// Настраиваем обработчики для tree view
-	tree_view_.on_quit = []() { /* handled by screen */ };
 	tree_view_.on_show_snippet = [this]()
 	{
 		handleShowSnippet();
@@ -409,6 +441,11 @@ storageBrowser::storageBrowser(data::storage::shared_ptr_t storage)
 	{
 		handleDelete();
 	};
+	tree_view_.on_rename = [this]()
+	{
+		handleRename();
+	};
+	tree_view_.on_quit = on_quit;
 }
 
 Component storageBrowser::createComponent()
@@ -420,40 +457,44 @@ Component storageBrowser::createComponent()
 
 Element storageBrowser::render()
 {
+	// Если открыт просмотр сниппета - показываем только его
 	if (snippet_view_.IsVisible())
 	{
 		return snippet_view_.GetComponent()->Render();
 	}
 
-	auto tree_element = tree_view_.GetComponent()->Render();
+	// Если открыт диалог редактирования - показываем только его (без основного окна)
+	if (multi_input_dialog_.IsVisible())
+	{
+		return multi_input_dialog_.GetComponent()->Render();
+	}
 
+	// Если открыт простой диалог - показываем его поверх основного окна
 	if (input_dialog_.IsVisible())
 	{
-		return dbox({ tree_element, input_dialog_.GetComponent()->Render() });
-	}
-	else if (multi_input_dialog_.IsVisible())
-	{
-		return dbox({ tree_element, multi_input_dialog_.GetComponent()->Render() });
+		return dbox({ tree_view_.GetComponent()->Render(), input_dialog_.GetComponent()->Render() });
 	}
 
-	return tree_element;
+	// Иначе показываем только основное окно
+	return tree_view_.GetComponent()->Render();
 }
 
 bool storageBrowser::handleEvent(Event event)
 {
+	// Приоритет обработки событий: сниппет -> диалоги -> основное окно
 	if (snippet_view_.IsVisible())
 	{
 		return snippet_view_.GetComponent()->OnEvent(event);
 	}
 
-	if (input_dialog_.IsVisible())
-	{
-		return input_dialog_.GetComponent()->OnEvent(event);
-	}
-
 	if (multi_input_dialog_.IsVisible())
 	{
 		return multi_input_dialog_.GetComponent()->OnEvent(event);
+	}
+
+	if (input_dialog_.IsVisible())
+	{
+		return input_dialog_.GetComponent()->OnEvent(event);
 	}
 
 	return tree_view_.GetComponent()->OnEvent(event);
@@ -566,12 +607,61 @@ void storageBrowser::handleShowSnippet()
 	}
 }
 
-void runStorageBrowser(data::storage::shared_ptr_t storage)
+void storageBrowser::handleRename()
 {
-	auto screen = ScreenInteractive::TerminalOutput();
-	storageBrowser browser(storage);
-	auto component = browser.createComponent();
+	auto current_folder = storage_->currentFolder();
+	int adjusted_index = tree_view_.GetSelectedIndex();
 
+	if (!storage_->curIsRoot())
+	{
+		if (adjusted_index == 0)
+			return;
+		adjusted_index--;
+	}
+
+	if (adjusted_index < current_folder->subFolders_.size())
+	{
+		auto it = current_folder->subFolders_.begin();
+		std::advance(it, adjusted_index);
+		auto folder = it->second;
+
+		input_dialog_.Show(
+			"Rename Folder",
+			[this, folder](const std::string& new_name)
+			{
+				if (!new_name.empty())
+				{
+					storage_->addFolder(new_name);
+				}
+			},
+			folder->name_);
+	}
+	else if (adjusted_index >= current_folder->subFolders_.size())
+	{
+		int snippet_index = adjusted_index - current_folder->subFolders_.size();
+		if (snippet_index < current_folder->snippets_.size())
+		{
+			auto snippet = current_folder->snippets_[snippet_index];
+			input_dialog_.Show(
+				"Rename Snippet",
+				[this, snippet](const std::string& new_name)
+				{
+					if (!new_name.empty())
+					{
+						storage_->editSnippet(snippet->uuid, new_name, snippet->content, snippet->from_file);
+					}
+				},
+				snippet->title);
+		}
+	}
+}
+
+void runStorageBrowser(data::storage::shared_ptr_t storage, const std::string& pane)
+{
+	paneToSendCommand = pane;
+	auto screen = ScreenInteractive::TerminalOutput();
+	storageBrowser browser(storage, [&screen]() { screen.Exit(); });
+	auto component = browser.createComponent();
 	screen.Loop(component);
 }
 
