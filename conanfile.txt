@@ -1,5 +1,7 @@
 [requires]
+pugixml/1.14
 ftxui/6.0.2
+stduuid/1.2.3
 
 [generators]
 CMakeDeps
