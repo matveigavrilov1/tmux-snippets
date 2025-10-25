@@ -1,4 +1,8 @@
 build 
 .cache
-
+.venv
 tmux-snippets-*
+poetry.lock
+.doit.db
+__pycache__
+.conan2
