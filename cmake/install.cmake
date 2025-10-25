@@ -1,9 +1,11 @@
 function(install_project)
+	set(CMAKE_INSTALL_DIR "${CMAKE_SOURCE_DIR}/${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_BUILD_TYPE}-${GIT_COMMIT_HASH}")
+
 	set(PLUGIN_FILES
 		"${CMAKE_SOURCE_DIR}/snippets.tmux"
 	)
 
-	install(TARGETS tmux-snippets-ui
+	install(TARGETS "${UI_EXECUTABLE}"
 		RUNTIME DESTINATION "${CMAKE_INSTALL_DIR}"
 		CONFIGURATIONS Release Debug
 	)
