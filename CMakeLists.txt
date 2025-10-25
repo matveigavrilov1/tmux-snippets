@@ -16,5 +16,5 @@ find_package(ftxui REQUIRED)
 set(UI_EXECUTABLE tmux-snippets-ui)
 add_subdirectory(ui)
 
-# include(install)
-# install_project()
+include(install)
+install_project()
