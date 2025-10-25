@@ -13,7 +13,7 @@ int main() {
     storage->addSnippet("C++ Code", "#include <iostream>");
     
     // Запускаем браузер
-    ui::runStoragwBrowser(storage);
+    ui::runStorageBrowser(storage);
 
     return 0;
 }
