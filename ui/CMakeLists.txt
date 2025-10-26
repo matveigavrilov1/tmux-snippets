@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.10.0)
 set(UI_TARGET_SOURCES main.cpp
 	browser/storageBrowser.cpp
 	data/storage.cpp
+	data/xmlStorageManager.cpp
+	utils/exePathManager.cpp
 	utils/generate_uuid.cpp
 	utils/send_to_tmux.cpp
 )

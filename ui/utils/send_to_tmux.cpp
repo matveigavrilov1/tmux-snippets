@@ -2,6 +2,8 @@
 #include <string>
 #include <cstdio>
 #include <memory>
+#include <sstream>
+#include <fstream>
 
 #include "utils/send_to_tmux.h"
 
@@ -26,8 +28,36 @@ static std::string executeCommand(const std::string& command)
 	return result;
 }
 
+static std::string escapeSingleQuotes(const std::string& input)
+{
+	std::string result;
+	for (char c : input)
+	{
+		if (c == '\'')
+		{
+			result += "'\\''";
+		}
+		else
+		{
+			result += c;
+		}
+	}
+	return result;
+}
+
 void utils::sendCommandToTmux(const std::string& command, const std::string& target)
 {
-	std::string fullCommand = "tmux send-keys -t " + target + " '" + command + "' Enter";
+	std::istringstream stream(command);
+	std::string line;
+	std::string fullCommand = "tmux send-keys -t " + target;
+
+	while (std::getline(stream, line))
+	{
+		if (!line.empty())
+		{
+			fullCommand += " '" + escapeSingleQuotes(line) + "' Enter";
+		}
+	}
+
 	executeCommand(fullCommand);
 }

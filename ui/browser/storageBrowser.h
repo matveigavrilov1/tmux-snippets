@@ -85,14 +85,12 @@ public:
 
 	ftxui::Component GetComponent() { return component_; }
 
-	// Сигналы для внешних обработчиков
 	std::function<void()> on_quit;
 	std::function<void()> on_show_snippet;
+	std::function<void()> on_edit_item;
 	std::function<void()> on_add_snippet;
-	std::function<void()> on_edit_snippet;
 	std::function<void()> on_add_folder;
 	std::function<void()> on_delete;
-	std::function<void()> on_rename;
 
 private:
 	ftxui::Element createKeyHelp();
@@ -116,11 +114,10 @@ private:
 	bool handleEvent(ftxui::Event event);
 
 	void handleAddSnippet();
-	void handleEditSnippet();
+	void handleEditItem();
 	void handleAddFolder();
 	void handleDelete();
 	void handleShowSnippet();
-	void handleRename();
 
 	data::storage::shared_ptr_t storage_;
 

@@ -19,6 +19,12 @@ function(install_project)
 		CONFIGURATIONS Release Debug
 	)
 
+	install(DIRECTORY "${CMAKE_SOURCE_DIR}/data/"
+		DESTINATION "${CMAKE_INSTALL_DIR}/data"
+		USE_SOURCE_PERMISSIONS
+		CONFIGURATIONS Release Debug
+	)
+
 	install(DIRECTORY "${CMAKE_SOURCE_DIR}/scripts/"
 		DESTINATION "${CMAKE_INSTALL_DIR}/scripts"
 		USE_SOURCE_PERMISSIONS

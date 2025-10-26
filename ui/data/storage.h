@@ -39,9 +39,9 @@ public:
 		std::weak_ptr<folder> parent_;
 		uuids::uuid uuid_;
 
-		folder(const std::string& name)
+		folder(const std::string& name, uuids::uuid uuid = utils::generate_uuid())
 		: name_(name)
-		, uuid_(utils::generate_uuid())
+		, uuid_(uuid)
 		{ }
 	};
 

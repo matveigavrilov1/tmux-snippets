@@ -1,18 +1,25 @@
 #include "browser/storageBrowser.h"
+#include "data/xmlStorageManager.h"
+#include "utils/exePathManager.h"
+#include "utils/finally.h"
+
+#include <string>
+#include <filesystem>
 
 int main(int argc, char* argv[])
 {
-	std::string pane(argv[1]);
-	auto storage = std::make_shared<data::storage>();
+	std::string paneToSendSnippet(argv[1]);
 
-	auto folder1_uuid = storage->addFolder("Projects");
-	auto folder2_uuid = storage->addFolder("Work");
-	storage->addSnippet(pane, pane);
+	utils::exePathManager::getInstance().initialize(argv[0]);
+	data::xmlStorageManager xmlStorage;
+	xmlStorage.parse(utils::exePathManager::getInstance().getStoragePath());
+	auto xmlStorageDumpCallback = [&xmlStorage]()
+	{
+		xmlStorage.dump(utils::exePathManager::getInstance().getStoragePath());
+	};
+	utils::finally xmlStorageDump(xmlStorageDumpCallback);
 
-	std::string snippet;
-	storage->folderDown(folder1_uuid);
-	storage->addSnippet("C++ Code", "#include <iostream>");
-	ui::runStorageBrowser(storage, pane);
+	ui::runStorageBrowser(xmlStorage.getStorage(), paneToSendSnippet);
 
 	return 0;
 }

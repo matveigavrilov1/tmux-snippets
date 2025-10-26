@@ -2,15 +2,17 @@
 
 #include <ftxui/component/screen_interactive.hpp>
 
+#include "utils/exePathManager.h"
 #include "utils/send_to_tmux.h"
 
-#include <optional>
+#include <fstream>
 
 using namespace ftxui;
 
 namespace ui
 {
 static std::string paneToSendCommand;
+
 // InputDialog implementation
 InputDialog::InputDialog()
 {
@@ -244,7 +246,7 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 
 			auto list = vbox(std::move(elements));
 
-			return window(text("Storage Browser"), vbox({ createKeyHelp(), separator(), list | flex }) | flex);
+			return window(text("Snippets"), vbox({ createKeyHelp(), separator(), list | flex }) | flex);
 		});
 
 	component_ |= CatchEvent(
@@ -291,8 +293,8 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 			}
 			else if (event == Event::F2)
 			{
-				if (on_edit_snippet)
-					on_edit_snippet();
+				if (on_edit_item)
+					on_edit_item();
 				return true;
 			}
 			else if (event == Event::F3)
@@ -305,12 +307,6 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 			{
 				if (on_show_snippet)
 					on_show_snippet();
-				return true;
-			}
-			else if (event == Event::F5)
-			{
-				if (on_rename)
-					on_rename();
 				return true;
 			}
 			else if (event == Event::Escape)
@@ -326,9 +322,7 @@ StorageTreeView::StorageTreeView(data::storage::shared_ptr_t storage)
 
 Element StorageTreeView::createKeyHelp()
 {
-	return hbox(
-					 { text("[F1] Add "), text("[F2] Edit "), text("[F3] Folder "), text("[F4] View "), text("[F5] Rename "), text("[Del] Delete "), text("[Esc] Quit") })
-		| bold;
+	return hbox({ text("[F1] Add "), text("[F2] Edit "), text("[F3] Add Folder "), text("[F4] View "), text("[Del] Delete "), text("[Esc] Quit") }) | bold;
 }
 
 std::string StorageTreeView::getCurrentPath()
@@ -350,15 +344,15 @@ std::string StorageTreeView::getCurrentPath()
 		}
 	}
 
-	path_parts.push_back("Root");
+	path_parts.push_back("/");
 	std::reverse(path_parts.begin(), path_parts.end());
 
 	std::string path;
 	for (size_t i = 0; i < path_parts.size(); ++i)
 	{
-		if (i > 0)
-			path += " / ";
 		path += path_parts[i];
+		if (i > 0)
+			path += "/";
 	}
 
 	return path;
@@ -404,7 +398,27 @@ void StorageTreeView::handleEnter(const data::storage::folder_shared_ptr_t& curr
 		if (snippet_index < current_folder->snippets_.size())
 		{
 			auto snippet = current_folder->snippets_[snippet_index];
-			utils::sendCommandToTmux(snippet->content, paneToSendCommand);
+			std::string content_to_send;
+
+			if (snippet->from_file)
+			{
+				std::filesystem::path file_path = utils::exePathManager::getInstance().getFileSnippetPath(snippet->content);
+				std::ifstream file(file_path);
+				if (file.is_open())
+				{
+					std::stringstream buffer;
+					buffer << file.rdbuf();
+					content_to_send = buffer.str();
+					file.close();
+				}
+			}
+			else
+			{
+				// Используем содержимое напрямую
+				content_to_send = snippet->content;
+			}
+
+			utils::sendCommandToTmux(content_to_send, paneToSendCommand);
 
 			if (on_quit)
 				on_quit();
@@ -415,23 +429,21 @@ void StorageTreeView::handleEnter(const data::storage::folder_shared_ptr_t& curr
 	return;
 }
 
-// storageBrowser implementation
 storageBrowser::storageBrowser(data::storage::shared_ptr_t storage, std::function<void()> on_quit)
 : storage_(storage)
 , tree_view_(storage)
 {
-	// Настраиваем обработчики для tree view
 	tree_view_.on_show_snippet = [this]()
 	{
 		handleShowSnippet();
 	};
+	tree_view_.on_edit_item = [this]()
+	{
+		handleEditItem();
+	};
 	tree_view_.on_add_snippet = [this]()
 	{
 		handleAddSnippet();
-	};
-	tree_view_.on_edit_snippet = [this]()
-	{
-		handleEditSnippet();
 	};
 	tree_view_.on_add_folder = [this]()
 	{
@@ -440,10 +452,6 @@ storageBrowser::storageBrowser(data::storage::shared_ptr_t storage, std::functio
 	tree_view_.on_delete = [this]()
 	{
 		handleDelete();
-	};
-	tree_view_.on_rename = [this]()
-	{
-		handleRename();
 	};
 	tree_view_.on_quit = on_quit;
 }
@@ -512,7 +520,7 @@ void storageBrowser::handleAddSnippet()
 		});
 }
 
-void storageBrowser::handleEditSnippet()
+void storageBrowser::handleEditItem()
 {
 	auto current_folder = storage_->currentFolder();
 	int adjusted_index = tree_view_.GetSelectedIndex();
@@ -524,6 +532,7 @@ void storageBrowser::handleEditSnippet()
 		adjusted_index--;
 	}
 
+	// Если выбран сниппет - открываем многострочное редактирование
 	if (adjusted_index >= current_folder->subFolders_.size())
 	{
 		int snippet_index = adjusted_index - current_folder->subFolders_.size();
@@ -541,6 +550,24 @@ void storageBrowser::handleEditSnippet()
 				},
 				snippet->title, snippet->content, snippet->from_file);
 		}
+	}
+	// Если выбрана папка - открываем простое переименование
+	else if (adjusted_index < current_folder->subFolders_.size())
+	{
+		auto it = current_folder->subFolders_.begin();
+		std::advance(it, adjusted_index);
+		auto folder = it->second;
+
+		input_dialog_.Show(
+			"Rename Folder",
+			[this, folder](const std::string& new_name)
+			{
+				if (!new_name.empty())
+				{
+					storage_->renameFolder(folder->uuid_, new_name);
+				}
+			},
+			folder->name_);
 	}
 }
 
@@ -603,55 +630,6 @@ void storageBrowser::handleShowSnippet()
 		if (snippet_index < current_folder->snippets_.size())
 		{
 			snippet_view_.Show(current_folder->snippets_[snippet_index]);
-		}
-	}
-}
-
-void storageBrowser::handleRename()
-{
-	auto current_folder = storage_->currentFolder();
-	int adjusted_index = tree_view_.GetSelectedIndex();
-
-	if (!storage_->curIsRoot())
-	{
-		if (adjusted_index == 0)
-			return;
-		adjusted_index--;
-	}
-
-	if (adjusted_index < current_folder->subFolders_.size())
-	{
-		auto it = current_folder->subFolders_.begin();
-		std::advance(it, adjusted_index);
-		auto folder = it->second;
-
-		input_dialog_.Show(
-			"Rename Folder",
-			[this, folder](const std::string& new_name)
-			{
-				if (!new_name.empty())
-				{
-					storage_->addFolder(new_name);
-				}
-			},
-			folder->name_);
-	}
-	else if (adjusted_index >= current_folder->subFolders_.size())
-	{
-		int snippet_index = adjusted_index - current_folder->subFolders_.size();
-		if (snippet_index < current_folder->snippets_.size())
-		{
-			auto snippet = current_folder->snippets_[snippet_index];
-			input_dialog_.Show(
-				"Rename Snippet",
-				[this, snippet](const std::string& new_name)
-				{
-					if (!new_name.empty())
-					{
-						storage_->editSnippet(snippet->uuid, new_name, snippet->content, snippet->from_file);
-					}
-				},
-				snippet->title);
 		}
 	}
 }
